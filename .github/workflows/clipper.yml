@@ -1,0 +1,53 @@
+name: Daily clipper
+
+on:
+  schedule:
+    - cron: "0 6 * * *"      # varje dag 06:00 UTC
+  workflow_dispatch:           # gå att köra manuellt
+
+permissions:
+  contents: write              # för att spara processed.json
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installera beroenden
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install requests google-api-python-client google-auth yt-dlp
+
+      - name: Kör clipper
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          STREAMERS: ${{ vars.STREAMERS }}          # t.ex. "streamer1,streamer2"
+          MAX_CLIPS: "3"
+          UPLOAD: ${{ vars.UPLOAD || 'false' }}      # sätt till "true" när du vill ladda upp automatiskt
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_PRIVACY: private
+        run: python clipper.py
+
+      # Halvautomatiskt läge: spara färdiga Shorts så du kan granska dem
+      - name: Spara klipp som artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shorts
+          path: out/*.mp4
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Spara state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add processed.json || true
+          git diff --cached --quiet || (git commit -m "Update processed clips" && git push)
